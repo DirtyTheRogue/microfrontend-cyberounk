@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import eventBus from "shared/eventBus";
 import "./BillboardMatrix.css";
 
@@ -36,29 +36,88 @@ export default function BillboardMatrix() {
     return null;
   }, [hackerCommand, powerOutage]);
 
-  // TODO: ecouter 'hacker:command'
-  // - command = 'storm' → afficher STORM WARNING sur les panneaux
-  // - command = 'riot' → cycler entre les 3 messages de revolution
-  // - command = 'love' → afficher LOVE IS THE ANSWER
-  // - command = 'reset' → revenir aux pubs normales
-  //
-  // TODO: ecouter 'power:outage'
-  // - severity = 'total' → TOTAL BLACKOUT sur les panneaux
-  // - severity = 'partial' → POWER FAILURE sur les panneaux
-  //
-  // TODO: emettre 'billboard:message' a chaque changement
-  // payload: { text, glitch: boolean, color: string }
-  //
-  // N'oublie pas le cleanup des listeners
+  useEffect(() => {
+    const unsubHacker = eventBus.on("hacker:command", (payload) => {
+      if (!payload || !payload.command) return;
+      const { command } = payload;
+      if (command === "reset") {
+        setHackerCommand(null);
+        setPowerOutage(null);
+        setRiotIndex(0);
+        return;
+      }
+      if (command === "riot") {
+        setHackerCommand("riot");
+        return;
+      }
+      if (command === "storm" || command === "love") {
+        setHackerCommand(command);
+      }
+    });
+
+    const unsubPower = eventBus.on("power:outage", (payload) => {
+      if (!payload || !payload.severity) {
+        setPowerOutage(null);
+        return;
+      }
+      const { severity } = payload;
+      if (severity === "total" || severity === "partial") {
+        setPowerOutage(severity);
+      } else {
+        setPowerOutage(null);
+      }
+    });
+
+    return () => {
+      unsubHacker();
+      unsubPower();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hackerCommand !== "riot") return;
+    const interval = setInterval(() => {
+      setRiotIndex((prev) => prev + 1);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [hackerCommand]);
+
+  useEffect(() => {
+    const isCrisis = Boolean(hackerCommand || powerOutage);
+    const text = currentMessage || "BROADCAST NORMAL";
+    const color = currentColor || "#940c16";
+    eventBus.emit("billboard:message", {
+      text,
+      glitch: isCrisis,
+      color,
+    });
+  }, [currentMessage, currentColor, hackerCommand, powerOutage]);
+
+  useEffect(() => {
+    if (!hackerCommand && !powerOutage) return;
+    setGlitchPulse(true);
+    const t = setTimeout(() => setGlitchPulse(false), 600);
+    return () => clearTimeout(t);
+  }, [hackerCommand, powerOutage]);
 
   const simulateRandomHacker = () => {
-    // TODO: declencher un command hacker aleatoire
-    console.log('[Billboard] TODO: simulate hacker command');
+    const commands = ["storm", "riot", "love", "reset"];
+    const random = commands[Math.floor(Math.random() * commands.length)];
+    eventBus.emit("hacker:command", { command: random });
   };
 
   const simulateRandomPowerOutage = () => {
-    // TODO: declencher une panne de courant aleatoire
-    console.log('[Billboard] TODO: simulate power outage');
+    const severities = ["partial", "total", null];
+    const random = severities[Math.floor(Math.random() * severities.length)];
+    if (random === null) {
+      eventBus.emit("power:outage", { severity: null });
+    } else {
+      eventBus.emit("power:outage", {
+        zones: ["ZONE-A", "ZONE-B"],
+        severity: random,
+        cityPower: random === "total" ? 0 : 45,
+      });
+    }
   };
 
   return (
